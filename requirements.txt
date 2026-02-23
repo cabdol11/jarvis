@@ -1,0 +1,7 @@
+# J.A.R.V.I.S. Requirements
+# Core system uses Python standard library only.
+# No external dependencies required for jarvis_core.py or any systems/*.py
+#
+# Optional: rich library for enhanced terminal output
+# Uncomment to install:
+# rich>=13.0.0
