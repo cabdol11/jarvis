@@ -22,6 +22,7 @@ Usage:
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -34,6 +35,7 @@ from systems.operations import OperationsSystem
 from systems.financials import FinancialSystem
 from systems.intelligence import IntelligenceSystem
 from systems.comms      import CommsSystem
+from systems.voice      import speak, speak_briefing, is_elevenlabs_configured
 
 BASE_DIR = Path(__file__).parent
 DATA_DIR = BASE_DIR / "data"
@@ -95,7 +97,9 @@ def cmd_brief(_args):
     print()
 
     greeting = "Good morning" if now.hour < 12 else "Good afternoon" if now.hour < 18 else "Good evening"
-    jarvis(f"{greeting}, sir. All systems are online. Situational briefing follows.", "neutral")
+    greeting_text = f"{greeting}, sir. All systems are online. Situational briefing follows."
+    jarvis(greeting_text, "neutral")
+    speak(greeting_text)
     print()
 
     # Pending items from memory
@@ -110,16 +114,22 @@ def cmd_brief(_args):
     threats = sec.get_active_threats()
     critical = [t for t in threats if t.get("level") == "CRITICAL"]
     if critical:
+        alert_text = f"Priority alert, sir. {critical[0].get('threat', 'Critical issue detected')}"
         jarvis(f"PRIORITY ALERT: {critical[0].get('threat', 'Critical issue detected')}", "emergency")
+        speak(alert_text)
         print()
     elif threats:
+        alert_text = f"Top risk: {threats[0].get('threat', 'Active threat')}. Probability: {threats[0].get('probability', '?')} percent."
         jarvis(f"Top risk: {threats[0].get('threat', 'Active threat')} — Probability: {threats[0].get('probability', '?')}%", "alert")
+        speak(alert_text)
         print()
 
     # Proactive insight
     insight = intel.get_top_insight()
     if insight:
-        jarvis(f"I've taken the liberty of noting: {insight}", "insight")
+        insight_text = f"I've taken the liberty of noting: {insight}"
+        jarvis(insight_text, "insight")
+        speak(insight_text)
         print()
 
     # Financial snapshot
@@ -150,7 +160,9 @@ def cmd_brief(_args):
     print()
 
     print(line("─"))
-    jarvis("All systems nominal. Awaiting your orders, sir.", "confirm")
+    closing = "All systems nominal. Awaiting your orders, sir."
+    jarvis(closing, "confirm")
+    speak(closing)
     print(line())
     print()
 
@@ -304,11 +316,64 @@ def cmd_status(_args):
     print()
 
 
+def cmd_say(args):
+    """Speak any text aloud as JARVIS."""
+    text = " ".join(args.text) if args.text else ""
+    if not text:
+        jarvis("Nothing to say, sir. Provide text: python jarvis_core.py say \"your text\"")
+        return
+    speak(text)
+    jarvis(f"\"{text}\"", "neutral")
+
+
+def cmd_voice(args):
+    """Configure ElevenLabs voice or show voice status."""
+    from systems.voice import set_api_key, is_elevenlabs_configured, MACOS_VOICE
+
+    if args.key:
+        # Save key to .env file for persistence
+        env_file = BASE_DIR / ".env"
+        lines = []
+        if env_file.exists():
+            with open(env_file) as f:
+                lines = [l for l in f.readlines() if not l.startswith("ELEVENLABS_API_KEY")]
+        lines.append(f"ELEVENLABS_API_KEY={args.key}\n")
+        with open(env_file, "w") as f:
+            f.writelines(lines)
+        set_api_key(args.key)
+        print()
+        jarvis("ElevenLabs API key saved. JARVIS will now speak with Paul Bettany's voice, sir.", "confirm")
+        speak("ElevenLabs configured. Voice online, sir.")
+        print()
+    else:
+        print()
+        if is_elevenlabs_configured():
+            jarvis("Voice engine: ElevenLabs — JARVIS (Paul Bettany). Voice ID: WWtyH2oxeOp9yZwK8ERD", "confirm")
+        else:
+            jarvis(f"Voice engine: macOS {MACOS_VOICE} (British). To activate the real JARVIS voice:", "neutral")
+            jarvis("1. Get a free ElevenLabs API key at elevenlabs.io", "neutral")
+            jarvis("2. Run: python jarvis_core.py voice YOUR_API_KEY", "neutral")
+        print()
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
+def _load_env():
+    """Load .env file into environment if it exists."""
+    env_file = BASE_DIR / ".env"
+    if env_file.exists():
+        with open(env_file) as f:
+            for line in f:
+                line = line.strip()
+                if line and "=" in line and not line.startswith("#"):
+                    key, _, val = line.partition("=")
+                    os.environ.setdefault(key.strip(), val.strip())
+
+
 def main():
+    _load_env()
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     parser = argparse.ArgumentParser(description="J.A.R.V.I.S. — Core Interface")
@@ -329,6 +394,12 @@ def main():
     decide_p = subparsers.add_parser("decide", help="Decision support")
     decide_p.add_argument("decision", nargs="*")
 
+    say_p = subparsers.add_parser("say", help="Speak a line as JARVIS")
+    say_p.add_argument("text", nargs="*")
+
+    voice_p = subparsers.add_parser("voice", help="Configure voice (set ElevenLabs key)")
+    voice_p.add_argument("key", nargs="?")
+
     args = parser.parse_args()
     commands = {
         "brief":  cmd_brief,
@@ -337,6 +408,8 @@ def main():
         "do":     cmd_do,
         "prep":   cmd_prep,
         "decide": cmd_decide,
+        "say":    cmd_say,
+        "voice":  cmd_voice,
     }
 
     if args.command in commands:
